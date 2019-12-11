@@ -42,6 +42,7 @@ if __name__ == '__main__':
     parser.add_argument('--group_per_node', default=4, type=int,
                         help="num. of model replicas a node can accomondate")
     parser.add_argument('--local_rank', default=0, type=int)
+    parser.add_argument('--batch_size', default=1024, type=int)
     args = parser.parse_args()
 
     # initialization
@@ -53,21 +54,22 @@ if __name__ == '__main__':
     # initialize model, dataloader, and train (see next section)
 
     is_dist = True
+    bsz = args.batch_size
     model = ToyModel()
     dataset = ToyData()
     if is_dist:
         model = DDP(model)
         sampler = DistributedSampler(dataset)  # will shuffle by default
         data_loader = DataLoader(
-            dataset, batch_size=1024, shuffle=False, num_workers=2, pin_memory=True, sampler=sampler)
+            dataset, batch_size=bsz, shuffle=False, num_workers=2, pin_memory=True, sampler=sampler)
     else:
         # compare with regular data loader
         data_loader = DataLoader(
-            dataset, batch_size=1024, shuffle=True, num_workers=2, pin_memory=True)
+            dataset, batch_size=bsz, shuffle=True, num_workers=2, pin_memory=True)
 
-    optimizer = torch.optim.SGD(model.parameters(), lr=0.0001)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
     loss = torch.nn.CrossEntropyLoss()
-    for x, y in data_loader:
+    for idx, (x, y) in enumerate(data_loader):
         optimizer.zero_grad()
         x, y = x.float().cuda(), y.cuda()
         o = model(x)
@@ -75,6 +77,6 @@ if __name__ == '__main__':
         l.backward()
         optimizer.step()
         if dist.get_rank() == 0:
-            print(l.item())
+            print(idx, (idx+1)*bsz*dist.get_world_size(), l.item())
 
     dist.destroy_process_group()
