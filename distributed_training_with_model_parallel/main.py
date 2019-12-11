@@ -1,4 +1,5 @@
 import argparse
+import numpy as np
 
 import torch
 import torch.distributed as dist
@@ -11,9 +12,9 @@ from torch.utils.data.distributed import DistributedSampler
 class ToyModel(nn.Module):
     def __init__(self):
         super(ToyModel, self).__init__()
-    self.device = torch.cuda.current_device()
-    self.head = nn.Linear(32, 32).to(self.device)
-    self.tail = nn.Linear(32, 10).to(self.device+1)
+        self.device = torch.cuda.current_device()
+        self.head = nn.Linear(32, 32).to(self.device)
+        self.tail = nn.Linear(32, 10).to(self.device+1)
 
     def forward(self, x):
         x = self.head(x).to(self.device+1)
@@ -21,23 +22,24 @@ class ToyModel(nn.Module):
         return x
 
 
-class ToyData(DataSet):
+class ToyData(Dataset):
     def __init__(self):
-        self.data = [[x]*32 for x in range(1 << 20)]
+        self.data = [[float(x)]*32 for x in range(1 << 20)]
         self.y = [x % 10 for x in range(1 << 20)]
 
     def __getitem__(self, idx):
-        return self.data[idx], self.y[idx]
+        res, res_y = np.asarray(self.data[idx]), self.y[idx]
+        return  res, res_y
 
     def __len__(self):
         return len(self.data)
 
 
-if __name == '__main__':
-    parser.argparse.ArgumentParser()
-    parser.add_argument('--groups_size', default=2,
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--groups_size', default=2, type=int,
                         help="num. of GPUs the model take")
-    parser.add_argument('--group_per_node', default=4,
+    parser.add_argument('--group_per_node', default=4, type=int,
                         help="num. of model replicas a node can accomondate")
     parser.add_argument('--local_rank', default=0, type=int)
     args = parser.parse_args()
@@ -57,20 +59,22 @@ if __name == '__main__':
         model = DDP(model)
         sampler = DistributedSampler(dataset)  # will shuffle by default
         data_loader = DataLoader(
-            dataset, batch_size=4, shuffle=False, num_workers=2, pin_memory=True, sampler=sampler)
+            dataset, batch_size=1024, shuffle=False, num_workers=2, pin_memory=True, sampler=sampler)
     else:
         # compare with regular data loader
         data_loader = DataLoader(
-            dataset, batch_size=4, shuffle=True, num_workers=2, pin_memory=True)
+            dataset, batch_size=1024, shuffle=True, num_workers=2, pin_memory=True)
 
-    optimizer = torch.optim.SGD(model.parameters(), lr=0.001)
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.0001)
     loss = torch.nn.CrossEntropyLoss()
     for x, y in data_loader:
         optimizer.zero_grad()
-        x, y = x.cuda(), y.cuda()
+        x, y = x.float().cuda(), y.cuda()
         o = model(x)
         l = loss(o, y)
         l.backward()
         optimizer.step()
+        if dist.get_rank() == 0:
+            print(l.item())
 
     dist.destroy_process_group()
