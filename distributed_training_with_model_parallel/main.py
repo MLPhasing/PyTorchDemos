@@ -28,8 +28,7 @@ class ToyData(Dataset):
         self.y = [x % 10 for x in range(1 << 20)]
 
     def __getitem__(self, idx):
-        res, res_y = np.asarray(self.data[idx]), self.y[idx]
-        return  res, res_y
+        return np.asarray(self.data[idx]), self.y[idx]
 
     def __len__(self):
         return len(self.data)

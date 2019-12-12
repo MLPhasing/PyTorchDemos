@@ -1,4 +1,4 @@
-2019-12-09 11:04 # Distributed Data Parallel with Model Parallel in an HPC environment
+# Distributed Data Parallel with Model Parallel in an HPC environment
 
 ## Objective
 This tutorial is on :
@@ -45,23 +45,23 @@ Here is an example code does the job.
 import argparse
 import torch.distributed as dist
 
-if __name=='__main__':
-  parser.argparse.ArgumentParser()
-  parser.add_argument('--groups_size', default=2, help="num. of GPUs the model take")
-  parser.add_argument('--group_per_node', default=4, help="num. of model replicas a node can accomondate")
+if __name__ == '__main__':
+  parser = argparse.ArgumentParser()
+  parser.add_argument('--groups_size', default=2, type=int,
+                      help="num. of GPUs the model take")
+  parser.add_argument('--group_per_node', default=4, type=int,
+                      help="num. of model replicas a node can accomondate")
   parser.add_argument('--local_rank', default=0, type=int)
+  parser.add_argument('--batch_size', default=1024, type=int)
   args = parser.parse_args()
 
-  # initialization 
+  # initialization
   torch.distributed.init_process_group(backend='nccl', init_method='env://')
   gs, gpn, rk = args.groups_size, args.group_per_node, dist.get_rank()
-  start_dev_id = gs*(rk%gpn)
+  start_dev_id = gs*(rk % gpn)
   torch.cuda.set_device(start_dev_id)
-
-  # initialize model, dataloader, and train (see next section)
   
   dist.destroy_process_group()
-
 ```
 
 ## Distributed Data Parallel
@@ -74,39 +74,43 @@ from torch.utils.data import Dataset, DataLoader
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
 
-class ToyData(DataSet):
-  def __init__(self):
-    self.data = [ [x]*32 for x in range(1<<20) ]
-    self.y = [ x%10 for x in range(1<<20)]
-  
-  def __getitem__(self, idx):
-    return self.data[idx], self.y[idx]
+class ToyData(Dataset):
+    def __init__(self):
+        self.data = [[float(x)]*32 for x in range(1 << 20)]
+        self.y = [x % 10 for x in range(1 << 20)]
 
-  def __len__(self):
-    return len(self.data)
+    def __getitem__(self, idx):
+        return np.asarray(self.data[idx]), self.y[idx]
+
+    def __len__(self):
+        return len(self.data)
+
 
 if __name=='__main__':
-  # after the previous cuda setup code 
-  is_dist = True
-  model = ToyModel()
-  dataset = ToyData()
-  if is_dist:
-    model = DDP(model)
-    sampler = DistributedSampler(dataset) # will shuffle by default
-    data_loader = DataLoader(dataset, batch_size=4, shuffle=False, num_workers=2, pin_memory=True, sampler=sampler)
-  else:
-    # compare with regular data loader
-    data_loader = DataLoader(dataset, batch_size=4, shuffle=True, num_workers=2, pin_memory=True)
+    # after the previous cuda setup code 
+    is_dist = True
+    bsz = args.batch_size
+    model = ToyModel()
+    dataset = ToyData()
+    if is_dist:
+        model = DDP(model)
+        sampler = DistributedSampler(dataset)  # will shuffle by default
+        data_loader = DataLoader(
+            dataset, batch_size=bsz, shuffle=False, num_workers=2, pin_memory=True, sampler=sampler)
+    else:
+        # compare with regular data loader
+        data_loader = DataLoader(
+            dataset, batch_size=bsz, shuffle=True, num_workers=2, pin_memory=True)
 
-  optimizer = torch.optim.SGD(model.parameters(), lr=0.001)
-  loss = torch.nn.CrossEntropyLoss() 
-  for x, y in data_loader:
-    optimizer.zero_grad()
-    x, y = x.cuda(), y.cuda()
-    o = model(x)
-    l = loss(o, y)
-    l.backward()
-    optimizer.step()
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
+    loss = torch.nn.CrossEntropyLoss()
+    for idx, (x, y) in enumerate(data_loader):
+        optimizer.zero_grad()
+        x, y = x.float().cuda(), y.cuda()
+        o = model(x)
+        l = loss(o, y)
+        l.backward()
+        optimizer.step()
 ```
 
 ## Launching PyTorch Distributed Training
@@ -126,14 +130,14 @@ master_addr=<hostname> # you should use either an ip address (i.e. AWS),
                        #   or a node name on hpc environment.
 port=<port_number>     # for example, 8888
 
-python -m torch.distributed.launch \ 
+python -m torch.distributed.launch \
     --nproc_per_node ${nproc_per_node} \
     --nnodes ${nnodes} \
     --node_rank ${node_rank} \
     --master_addr ${master_addr} \
     --master_port 8888 \
     main.py \
-    --groups_size 2 \ 
+    --groups_size 2 \
     --group_per_node ${nproc_per_node}
 ```
 
@@ -149,14 +153,14 @@ master_addr=<hostname> # you should use either an ip address (i.e. AWS),
                        #   or a node name on hpc environment.
 port=<port_number>     # for example, 8888
 
-python -m torch.distributed.launch \ 
+python -m torch.distributed.launch \
     --nproc_per_node ${nproc_per_node} \
     --nnodes ${nnodes} \
     --node_rank ${node_rank} \
     --master_addr ${master_addr} \
     --master_port 8888 \
     main.py \
-    --groups_size 2 \ 
+    --groups_size 2 \
     --group_per_node ${nproc_per_node}
 ```
 
@@ -175,14 +179,14 @@ master_addr=$3          # hostname for the master node
 port=8888               # 
 
 source activate <pytorch_venv> ## if using conda 
-python -m torch.distributed.launch \ 
+python -m torch.distributed.launch \
     --nproc_per_node ${nproc_per_node} \
     --nnodes ${nnodes} \
     --node_rank ${node_rank} \
     --master_addr ${master_addr} \
     --master_port 8888 \
     main.py \
-    --groups_size 2 \ 
+    --groups_size 2 \
     --group_per_node ${nproc_per_node}
 ```
 
@@ -219,3 +223,5 @@ wait
 
 To summarize, the `job.sbatch` launches `launch.sh` on all the working nodes,
 and `launch.sh` executes the distributed pytorch code `main.py`. 
+A working example can be found
+[here](https://github.com/YHRen/PyTorchDemos/tree/master/distributed_training_with_model_parallel)
