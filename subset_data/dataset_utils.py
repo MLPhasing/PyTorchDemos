@@ -4,6 +4,7 @@ from torch.utils.data import Dataset, Subset
 from typing import Dict
 from collections import defaultdict
 import itertools as it
+import warnings
 
 def split_dataset(dataset: Dataset, train_frac: float = 0.9, random_seed: int = None):
     random_seed = random_seed if random_seed else np.random.randint(1<<10)
@@ -127,8 +128,8 @@ class StatefulDataSampler():
                 self.state[k]['idx'] = len(self.state[k]['data'])
 
         if unfulfilled_sz > 0:
-            raise RuntimeWarning(f"budget cannot be fullfilled with remaining\
-                                   samples: {unfulfilled_sz}")
+            warnings.warn(f"budget cannot be fullfilled with remaining\
+                           samples: {unfulfilled_sz}", RuntimeWarning)
             while unfulfilled_sz > 0:
                 for v in self.state.values():
                     if v['idx'] < len(v['data']):
